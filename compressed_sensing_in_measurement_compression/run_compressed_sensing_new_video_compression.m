@@ -15,8 +15,8 @@ addpath(fullfile(UpFolder, 'libraries/lzw'));
 addpath(fullfile(UpFolder, 'libraries/pureAC'));
 addpath(fullfile(UpFolder, 'libraries/'));
 addpath(fullfile(UpFolder, 'libraries/BallLabsAlgo'));
-addpath(fullfile(UpFolder, 'sequences/salt'));
-imageOriginalPath = 'C:\Users\jiray\OneDrive\Desktop\Backup\Research\sequences\salt';
+addpath(fullfile(UpFolder, 'sequences/'));
+imageOriginalPath = 'C:\Users\jiray\OneDrive\Desktop\Backup\Research\sequences\';
 imageFiles = [dir(fullfile(imageOriginalPath,'*png'));
               dir(fullfile(imageOriginalPath,'*tiff'));
               dir(fullfile(imageOriginalPath,'*tif'));
@@ -34,10 +34,10 @@ simulation_parameter.measurement_matrix_lists        = [simulation_parameter.mac
 simulation_parameter.measurement_matrix_construction = 'binary_walsh_zigzag';
 simulation_parameter.reconstruction_algorithm        = 'l1_eq_pd';
 simulation_parameter.transformation_algorithm        = 'ifwht';
-simulation_parameter.color_mode                      = 'rgb';
+simulation_parameter.color_mode                      = 'gray';
 
 intra_inter_prediction_obj = intra_inter_prediction;
-for matrix_depth = [32]
+for matrix_depth = [64]
     matrix_depth
     simulation_parameter.m = matrix_depth;
     switch simulation_parameter.measurement_matrix_construction
@@ -124,11 +124,11 @@ for matrix_depth = [32]
             simulation_parameter.phi = max(simulation_parameter.phi_temp(1:simulation_parameter.m,1:simulation_parameter.n),0);
     end
 
-    mat = simulation_parameter.phi;  % Your sample matrix
-    [r, c] = size(mat);                          % Get the matrix size
-    imagesc((1:c)+0.5, (1:r)+0.5, mat);          % Plot the image
-    colormap(gray);                              % Use a gray colormap
-    axis equal                                   % Make axes grid sizes equal
+    mat = simulation_parameter.phi;                   % Your sample matrix
+    [r, c] = size(mat);                               % Get the matrix size
+    imagesc((1:c)+0.5, (1:r)+0.5, mat);               % Plot the image
+    colormap(gray);                                   % Use a gray colormap
+    axis equal                                        % Make axes grid sizes equal
     set(gca, 'XTick', 1:(c+1), 'YTick', 1:(r+1), ...  % Change some axes properties
              'XLim', [1 c+1], 'YLim', [1 r+1], ...
              'GridLineStyle', '-', 'XGrid', 'on', 'YGrid', 'on');
@@ -144,17 +144,29 @@ for matrix_depth = [32]
         end
         simulation_parameter.theta(:,theta_loop) = simulation_parameter.phi*simulation_parameter.psi;
     end
-    for frame_number = 1:2
+    
+    intra_buffer_encoder = cell(136, 240, 3);
+    inter_buffer_encoder = cell(136, 240, 3);
+    for kk = 1:3
+        for ii = 1:136
+            for jj = 1:240
+                intra_buffer_encoder{ii,jj,kk} = zeros([simulation_parameter.sliding_window_size simulation_parameter.sliding_window_size]);
+                inter_buffer_encoder{ii,jj,kk} = zeros([simulation_parameter.sliding_window_size simulation_parameter.sliding_window_size]);
+            end
+        end
+    end
+    
+    for frame_number = 1:1
         frame_number
         %___LOAD IMAGE___
         load_frame = imread(imageFiles(frame_number).name);
         if(strcmp(simulation_parameter.color_mode,'rgb') || strcmp(simulation_parameter.color_mode,'RGB'))
             frame = load_frame(:,:,:);
-            frame = padarray(frame, [4 2]);
+%             frame = padarray(frame, [4 2]);
             plane = 3;
         elseif(strcmp(simulation_parameter.color_mode,'gray') || strcmp(simulation_parameter.color_mode,'GRAY'))
             frame = double(rgb2gray(load_frame));
-            frame = padarray(frame, [4 2]);
+%             frame = padarray(frame, [4 2]);
             %frame = frame(1:720, 1:1280, :);
             plane = 1;
         else
@@ -168,21 +180,19 @@ for matrix_depth = [32]
         for k = 1:plane
             frame_temp(:,:,k) = mat2cell(frame(:,:,k), sub_block.x, sub_block.y);
         end
-
+        
         %___THE RANDOM PROJECTION___
         entropy_bpp_uncompressed = 0;
         disp('Random Projection...');
         for k = 1:plane
             for i = 1:size(frame,1)/simulation_parameter.macro_block_size
                 for j = 1:size(frame,2)/simulation_parameter.macro_block_size
-                   one_block_image(:,:,k)   = reshape(frame_temp{i,j,k},simulation_parameter.macro_block_size^2,1);
-                   y.measurement{i,j,k}     = (BCS_encoder(double(one_block_image(:,:,k)), simulation_parameter.phi)); %___Sampling
+                   one_block_image(:,:,k) = reshape(frame_temp{i,j,k},simulation_parameter.macro_block_size^2,1);
+                   y.measurement{i,j,k}   = (BCS_encoder(double(one_block_image(:,:,k)), simulation_parameter.phi)); %___Sampling
                 end
             end
         end
         disp('Random Projection Done');
-        a = y.measurement;
-        save('uncompressed_file','a','-mat'); % Save Compress data "Header"
         disp('Measurement plance extraction...');
         for k = 1:plane
             for i = 1:size(frame,1)/simulation_parameter.macro_block_size
@@ -194,12 +204,12 @@ for matrix_depth = [32]
             end
         end
         disp('Done');
+
+        disp('Uncompressed Measurement Entropy Measuring...');
+        translation_temp = y.sub_frame;
         entropy_bpp_uncompressed = 0;
-        for k = 1:plane
-            for z = 1:simulation_parameter.m
-                entropy_bpp_uncompressed = entropy_bpp_uncompressed + Measurement_Entropy(y.sub_frame(:,:,k,z),size(frame,1)*size(frame,2));
-            end
-        end
+        entropy_bpp_uncompressed = Measurement_Entropy(translation_temp,(size(frame,1)*size(frame,2)));
+        disp('Done');    
         
         disp('Compressing...');
         for k = 1:plane
@@ -207,29 +217,36 @@ for matrix_depth = [32]
                 %___Get one sub_frame___
                 sub_frame                                   = y.sub_frame(:,:,k,z);
                 %___Special_case padding for 4K___
-                sub_frame(24,24)                            = 0;
+                sub_frame(136,:)                            = 0;
                 sub_block.x                                 = zeros(1, size(sub_frame,1)/simulation_parameter.sliding_window_size) + simulation_parameter.sliding_window_size;
                 sub_block.y                                 = zeros(1, size(sub_frame,2)/simulation_parameter.sliding_window_size) + simulation_parameter.sliding_window_size;
                 sub_frame_temp                              = mat2cell(sub_frame, sub_block.x, sub_block.y);
                 for i = 1:size(sub_frame_temp,1)
                     for j = 1:size(sub_frame_temp,2)
+                        inter_buffer_encoder                = intra_buffer_encoder;
                         if(frame_number == 1)
-                            prediction_candidate                    = intra_inter_prediction_obj.intra_prediction(sub_frame_temp, simulation_parameter.sliding_window_size, i, j);
+                            prediction_candidate                    = intra_inter_prediction_obj.intra_prediction(sub_frame_temp, intra_buffer_encoder, simulation_parameter.sliding_window_size, i, j);
                             residual_sub_frame{i,j,k,z}             = sub_frame_temp{i,j} - prediction_candidate;
                             %___Generate DCT 2D Matrix___
                             dct2dmx                                 = dctmtx(4);
                             dct_coded_sub_frame{i,j,k,z}            = dct2dmx*residual_sub_frame{i,j,k,z}*dct2dmx';
-                            q_mtx                                   = [16 16 16 16; 16 16 16 16; 16 16 16 16; 16 16 16 16];
+                            qp                                      = 8;
+                            q_mtx                                   = [qp*1  qp*2 qp*4 qp*8; 
+                                                                       qp*2  qp*2 qp*4 qp*8; 
+                                                                       qp*4  qp*4 qp*4 qp*8;
+                                                                       qp*8  qp*8 qp*8 qp*8];
                             %___Do more about quantization___
                             quantization_coded_sub_frame{i,j,k,z}   = round(dct_coded_sub_frame{i,j,k,z}./q_mtx);
                             dequantization_coded_sub_frame{i,j,k,z} = quantization_coded_sub_frame{i,j,k,z}.*q_mtx;
                             invdct_coded_sub_frame{i,j,k,z}         = dct2dmx'*dequantization_coded_sub_frame{i,j,k,z}*dct2dmx;
-                            coded_sub_frame{i,j,k,z}                = invdct_coded_sub_frame{i,j,k,z} + 0;
+                            coded_sub_frame{i,j,k,z}                = invdct_coded_sub_frame{i,j,k,z} + prediction_candidate;
                             %__Next iteration__
-                            y.buffer_encoder{i,j,k,z}               = invdct_coded_sub_frame{i,j,k,z} + prediction_candidate;
+                            %___Big Bug___it should not be cell but matrix
+                            %in set of z
+                            intra_buffer_encoder{i,j,k}             = invdct_coded_sub_frame{i,j,k,z} + prediction_candidate;
                         else
-                            intra_prediction_candidate              = intra_inter_prediction_obj.intra_prediction(sub_frame_temp, simulation_parameter.sliding_window_size, i, j);
-                            inter_prediction_candidate              = intra_inter_prediction_obj.inter_prediction(sub_frame_temp, y.buffer_encoder, simulation_parameter.sliding_window_size, i, j);
+                            intra_prediction_candidate              = intra_inter_prediction_obj.intra_prediction(sub_frame_temp, intra_buffer_encoder, simulation_parameter.sliding_window_size, i, j);
+                            inter_prediction_candidate              = intra_inter_prediction_obj.inter_prediction(sub_frame_temp, inter_buffer_encoder, simulation_parameter.sliding_window_size, i, j);
                             if(sum(sum(abs(sub_frame_temp{i,j}-intra_prediction_candidate)))<sum(sum(abs(sub_frame_temp{i,j}-inter_prediction_candidate))))
                                 prediction_candidate                = intra_prediction_candidate;
                                 residual_sub_frame{i,j,k,z}         = sub_frame_temp{i,j} - prediction_candidate;
@@ -240,108 +257,92 @@ for matrix_depth = [32]
                             %___Generate DCT 2D Matrix___
                             dct2dmx                                 = dctmtx(4);
                             dct_coded_sub_frame{i,j,k,z}            = dct2dmx*residual_sub_frame{i,j,k,z}*dct2dmx';
-                            q_mtx                                   = [16 16 16 16; 16 16 16 16; 16 16 16 16; 16 16 16 16];
+                            q_mtx                                   = [1  2  4  8; 
+                                                                       2  4  8 16; 
+                                                                       4  8 16 32;
+                                                                       8 16 32 64];
                             %___Do more about quantization___
                             quantization_coded_sub_frame{i,j,k,z}   = round(dct_coded_sub_frame{i,j,k,z}./q_mtx);
                             dequantization_coded_sub_frame{i,j,k,z} = quantization_coded_sub_frame{i,j,k,z}.*q_mtx;
                             invdct_coded_sub_frame{i,j,k,z}         = dct2dmx'*dequantization_coded_sub_frame{i,j,k,z}*dct2dmx;
-                            coded_sub_frame{i,j,k,z}                = invdct_coded_sub_frame{i,j,k,z} + 0;
+                            coded_sub_frame{i,j,k,z}                = invdct_coded_sub_frame{i,j,k,z} + prediction_candidate;
                             %__Next iteration__
-                            y.buffer_encoder{i,j,k,z}               = invdct_coded_sub_frame{i,j,k,z} + prediction_candidate;
+                            %___Big Bug___it should not be cell but matrix
+                            %in set of z
+                            intra_buffer_encoder{i,j,k}             = invdct_coded_sub_frame{i,j,k,z} + prediction_candidate;
                         end
                     end
                 end
-            end
+            end 
         end
-        save('compressed_quantized','quantization_coded_sub_frame','-mat'); % Save Compress data "Header"
 
-        disp('Measure entropy...');
-        translation_temp       = cell2mat(quantization_coded_sub_frame);
+        disp('Entropy measuring...');
+        translation_temp = cell2mat(quantization_coded_sub_frame);
+        %___Trancate to original size
+        trancate_translation_temp = translation_temp(1:size(frame,1)/simulation_parameter.macro_block_size, ...
+                                                     1:size(frame,2)/simulation_parameter.macro_block_size, ...
+                                                     1:plane, ...
+                                                     1:simulation_parameter.m);
         entropy_bpp_compressed = 0;
         for k = 1:plane
-            for z = 1:simulation_parameter.m
-                entropy_bpp_compressed = entropy_bpp_compressed + Measurement_Entropy(translation_temp(:,:,k,z),size(frame,1)*size(frame,2));
+            for i = 1:size(trancate_translation_temp,1)
+                for j = 1:size(trancate_translation_temp,2)
+                    for z = 1:simulation_parameter.m
+                        y.element_plane_translation{i,j,k}(z,1) = trancate_translation_temp(i,j,k,z);
+                    end
+                    if(max(y.element_plane_translation{i,j,k}) == min(y.element_plane_translation{i,j,k}))
+                        entropy_bpp_compressed = entropy_bpp_compressed + 0;
+                    else
+                        entropy_bpp_compressed = entropy_bpp_compressed + (Measurement_Entropy(y.element_plane_translation{i,j,k},(size(frame,1)*size(frame,2))));
+                    end
+                end
             end
         end
         disp('Done');
         
-%         artm_4d = cell2mat(quantization_coded_sub_frame);
-%         disp('Arithmatic encoding...');
-%         for k = 1:plane
-%             for z = 1:simulation_parameter.m
-%                 ac_t.message = artm_4d(:,:,k,z);
-%                 [ac_t.message_coded, ac_t.message_counts, ac_t.message_table] = Arith_Code(reshape(ac_t.message.',1,[]));
-%                 %___Save to storage with METADATA____
-%                 Header(k,z).message_coded   = (ac_t.message_coded);
-%                 Header(k,z).message_counts  = (ac_t.message_counts);
-%                 Header(k,z).message_table   = (ac_t.message_table);
-%             end
-%         end
-%         save('artimatic_coding','Header','-mat'); % Save Compress data "Header"
-%         disp('Done');
-% 
-%         disp('Arithmatic decoding...');
-%         for k = 1:plane
-%             for z = 1:simulation_parameter.m 
-%                 arithmatic_decode{:,:,k,z} = Arith_Decode(Header(k,z).message_coded, ...
-%                                                           Header(k,z).message_counts,...
-%                                                           Header(k,z).message_table);
-%             end
-%         end
-%         disp('Done');
-%         %___Still not fully support direct translation___
-
         disp('Element plane to vector translating...');
         translation_temp = cell2mat(coded_sub_frame);
+        %___Trancate to original size
+        trancate_translation_temp = translation_temp(1:size(frame,1)/simulation_parameter.macro_block_size, ...
+                                                     1:size(frame,2)/simulation_parameter.macro_block_size, ...
+                                                     1:plane, ...
+                                                     1:simulation_parameter.m);
         for k = 1:plane
-            for i = 1:size(translation_temp,1)
-                for j = 1:size(translation_temp,2)
+            for i = 1:size(trancate_translation_temp,1)
+                for j = 1:size(trancate_translation_temp,2)
                     for z = 1:simulation_parameter.m
-                        y.element_plane_translation{i,j,k}(z,1) = translation_temp(i,j,k,z);
+                        y.element_plane_translation{i,j,k}(z,1) = trancate_translation_temp(i,j,k,z);
                     end
                 end
             end
         end
         disp('Done');
-
+        
         disp('Recovering...');
         for k = 1:plane
             for i = 1:size(frame,1)/simulation_parameter.macro_block_size
                 for j = 1:size(frame,2)/simulation_parameter.macro_block_size
-                     reconstructed_image{i,j,k}          = BCS_reconstruction(y.element_plane_translation{i,j,k}, ...
-                                                                              simulation_parameter.phi, ...
-                                                                              simulation_parameter.theta, ...
-                                                                              simulation_parameter.reconstruction_algorithm, ...
-                                                                              simulation_parameter.macro_block_size);
+                     reconstructed_image{i,j,k} = BCS_reconstruction(y.element_plane_translation{i,j,k}, ...
+                                                                     simulation_parameter.phi, ...
+                                                                     simulation_parameter.theta, ...
+                                                                     simulation_parameter.reconstruction_algorithm, ...
+                                                                     simulation_parameter.macro_block_size);
                 end
             end
         end
         disp('Recovering Done');
         video{matrix_depth,frame_number}            = uint8(cell2mat(reconstructed_image));
         for k = 1:plane
-            video{matrix_depth,frame_number}(:,:,k) = medfilt2(video{matrix_depth,frame_number}(:,:,k),[3 3]);
+            video{matrix_depth,frame_number}(:,:,k) = medfilt2(video{matrix_depth,frame_number}(:,:,k),[3 3], 'indexed');
         end
-%             imshow(video{matrix_depth,frame_number}(4+1:368-4,2+1:368-2));
         %___QUATITATIVE MATRICES___
-%             quantitative_metrices.psnr(matrix_depth)    = psnr(video{matrix_depth}, frame);
-%             quantitative_metrices.ssim(matrix_depth)    = ssim(video{matrix_depth}, frame);
-%             quantitative_metrices.rmse(matrix_depth)    = sqrt(mean(((video{matrix_depth}(:))-frame(:)).^2));
-           quantitative_metrices.entropy_bpp_uncompressed(frame_number) = entropy_bpp_uncompressed;
-           quantitative_metrices.entropy_compressed(frame_number)       = entropy_bpp_compressed;
-%             quantitative_metrices.time(matrix_depth)    = time;
-%             imwrite(video{matrix_depth},strcat('toeplitz_','matrix_depth_',num2str(matrix_depth),'.png'));
-%             imwrite(imcrop(video{16},[389.5 144.5 209 121]),strcat('ReadySetGo_cropped_SoWH_.png'));
-%             imwrite(video{matrix_depth},strcat(simulation_parameter.measurement_matrix_construction,'_','matrix_depth_',num2str(matrix_depth),'.png'));
-            temp_oout = cell2mat(quantization_coded_sub_frame);
-            YourData  = temp_oout(:,:,1,1);
-            filename  = strcat('coded_plane_',num2str(k),'___',num2str(frame_number),'.png');
-            imwrite(ind2rgb(im2uint8(mat2gray(YourData)), gray), filename);
+%         quantitative_metrices.psnr(matrix_depth)                     = psnr(video{matrix_depth,frame_number}, frame);
+%         quantitative_metrices.ssim(matrix_depth)                     = ssim(video{matrix_depth,frame_number}, frame);
+%         quantitative_metrices.rmse(matrix_depth)                     = sqrt(mean(((video{matrix_depth,frame_number}(:))-frame(:)).^2));
+        quantitative_metrices.entropy_bpp_uncompressed(frame_number) = entropy_bpp_uncompressed;
+        quantitative_metrices.entropy_bpp_compressed(frame_number)   = entropy_bpp_compressed;
     end
 end
-
-% for frame_number = 1:93
-%     imwrite(video{matrix_depth,frame_number},strcat('residual',num2str(frame_number),'.png'));
-% end
 
 % profile report
 % profile off
