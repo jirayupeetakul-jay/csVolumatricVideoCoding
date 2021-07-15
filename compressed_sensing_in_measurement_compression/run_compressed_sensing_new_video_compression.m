@@ -3,20 +3,20 @@ close all;
 clc;
 % profile on
 UpFolder = fileparts(pwd);
-addpath(fullfile(UpFolder, 'libraries/l1magic/Optimization'));
-addpath(fullfile(UpFolder, 'libraries/l1magich/Measurements'));
-addpath(fullfile(UpFolder, 'libraries/l1magic/Data'));
-addpath(fullfile(UpFolder, 'libraries/spgl1-1.9'));
-addpath(fullfile(UpFolder, 'libraries/SL0'));
-addpath(fullfile(UpFolder, 'libraries/TwIST_v2'));
-addpath(fullfile(UpFolder, 'libraries/NESTA_v1.1'));
-addpath(fullfile(UpFolder, 'libraries/L1_homotopy_v2.0'));
-addpath(fullfile(UpFolder, 'libraries/lzw'));
-addpath(fullfile(UpFolder, 'libraries/pureAC'));
-addpath(fullfile(UpFolder, 'libraries/'));
+addpath(fullfile(UpFolder, 'libraries\l1magic\Optimization'));
+addpath(fullfile(UpFolder, 'libraries\l1magich\Measurements'));
+addpath(fullfile(UpFolder, 'libraries\l1magic\Data'));
+addpath(fullfile(UpFolder, 'libraries\spgl1-1.9'));
+addpath(fullfile(UpFolder, 'libraries\SL0'));
+addpath(fullfile(UpFolder, 'libraries\TwIST_v2'));
+addpath(fullfile(UpFolder, 'libraries\NESTA_v1.1'));
+addpath(fullfile(UpFolder, 'libraries\L1_homotopy_v2.0'));
+addpath(fullfile(UpFolder, 'libraries\lzw'));
+addpath(fullfile(UpFolder, 'libraries\pureAC'));
+addpath(fullfile(UpFolder, 'libraries\'));
 addpath(fullfile(UpFolder, 'libraries/BallLabsAlgo'));
-addpath(fullfile(UpFolder, 'sequences/'));
-imageOriginalPath = 'C:\Users\jiray\OneDrive\Desktop\Backup\Research\sequences\';
+addpath(fullfile(UpFolder, 'sequences\'));
+imageOriginalPath = 'C:\Users\jiray\OneDrive\Desktop\Doctor\Research\sequences\';
 imageFiles = [dir(fullfile(imageOriginalPath,'*png'));
               dir(fullfile(imageOriginalPath,'*tiff'));
               dir(fullfile(imageOriginalPath,'*tif'));
@@ -34,10 +34,10 @@ simulation_parameter.measurement_matrix_lists        = [simulation_parameter.mac
 simulation_parameter.measurement_matrix_construction = 'binary_walsh_zigzag';
 simulation_parameter.reconstruction_algorithm        = 'l1_eq_pd';
 simulation_parameter.transformation_algorithm        = 'ifwht';
-simulation_parameter.color_mode                      = 'gray';
+simulation_parameter.color_mode                      = 'a_gray';
 
 intra_inter_prediction_obj = intra_inter_prediction;
-for matrix_depth = [64]
+for matrix_depth = [128]
     matrix_depth
     simulation_parameter.m = matrix_depth;
     switch simulation_parameter.measurement_matrix_construction
@@ -187,7 +187,9 @@ for matrix_depth = [64]
         for k = 1:plane
             for i = 1:size(frame,1)/simulation_parameter.macro_block_size
                 for j = 1:size(frame,2)/simulation_parameter.macro_block_size
-                   one_block_image(:,:,k) = reshape(frame_temp{i,j,k},simulation_parameter.macro_block_size^2,1);
+                   one_block_image(:,:,k) = reshape(frame_temp{i,j,k}.',1,[])';
+                   %reshape(frame_temp{i,j,k}.',1,[])';
+                   %reshape(frame_temp{i,j,k},simulation_parameter.macro_block_size^2,1);
                    y.measurement{i,j,k}   = (BCS_encoder(double(one_block_image(:,:,k)), simulation_parameter.phi)); %___Sampling
                 end
             end
